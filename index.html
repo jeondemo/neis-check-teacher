@@ -939,7 +939,78 @@ const NEISCheck = (() => {
   //  B. 과목형: 헤더 [과목|학년|학기|번호|성명|…|세부능력…], 행 하나가 (과목, 학생) 한 쌍
   // 공통: 인쇄 페이지 단위로 잘려 있어 같은 학생 조각을 이어 붙여야 하며,
   //       과목형은 과목명 자체가 페이지 경계에서 "과학탐구실"/"험1"처럼 잘릴 수 있음
+  // NEIS 조회 화면에서 내려받은 표 형식 세특 (교사용)
+  // [학년도|학기|학년|학생개인번호|과목|과목코드|반/번호|성명|학적변동구분|세부능력 및 특기사항|…]
+  function parseSetukTable(rows) {
+    const cs = v => v == null ? '' : String(v);
+    let hi = -1, C = null;
+    for (let i = 0; i < Math.min(rows.length, 15); i++) {
+      const r = (rows[i] || []).map(v => cs(v).replace(/\s/g, ''));
+      const name = r.findIndex(t => t === '성명' || t === '이름' || t === '학생명');
+      let body = r.findIndex(t => t.includes('세부능력'));
+      if (body === -1) body = r.findIndex(t => t.includes('특기사항'));
+      const cn = r.findIndex(t => t === '반/번호' || t === '반번호' || (t.includes('반') && t.includes('번호')));
+      const klass = r.findIndex(t => t === '반' || t === '학급' || t === '반명');
+      const num = r.findIndex(t => t === '번호' || t === '번');
+      const sid = r.findIndex(t => t === '학번' || t === '신학번');
+      // 행마다 반·번호(또는 학번)를 갖고 있어야 표 형식 — 인쇄 양식(반은 별도 머리글 행)과 구분
+      const hasClassPerRow = cn !== -1 || (klass !== -1 && num !== -1) || sid !== -1;
+      if (name === -1 || body === -1 || !hasClassPerRow) continue;
+      hi = i;
+      C = {
+        name, body, cn, klass, num, sid,
+        grade: r.findIndex(t => t === '학년'),
+        subj: r.findIndex(t => t === '과목' || t === '과목명' || t === '교과목'),
+        status: r.findIndex(t => t.includes('학적')),
+      };
+      break;
+    }
+    if (hi < 0) return [];
+    const map = new Map(), order = [];
+    for (let i = hi + 1; i < rows.length; i++) {
+      const row = rows[i] || [];
+      const nm = cs(row[C.name]).trim();
+      if (!nm) continue;
+      let klass = null, num = null, grade = null;
+      if (C.cn >= 0) { // '반/번호'처럼 한 칸에 붙어 있는 경우
+        const m = cs(row[C.cn]).trim().match(/(\d{1,2})\s*[\/\-.]\s*(\d{1,2})/);
+        if (m) { klass = +m[1]; num = +m[2]; }
+      }
+      if (klass == null && C.klass >= 0 && C.num >= 0) { // '반', '번호' 열이 따로 있는 경우
+        const kv = parseInt(cs(row[C.klass]).replace(/[^\d]/g, ''), 10);
+        const nv = parseInt(cs(row[C.num]).replace(/[^\d]/g, ''), 10);
+        if (Number.isFinite(kv) && Number.isFinite(nv)) { klass = kv; num = nv; }
+      }
+      if (C.grade >= 0) { const gv = parseInt(cs(row[C.grade]), 10); if (Number.isFinite(gv)) grade = gv; }
+      if (klass == null && C.sid >= 0) { // 학번(5자리)에서 학년·반·번호 추출
+        const sv = cs(row[C.sid]).replace(/[^\d]/g, '');
+        if (sv.length === 5) { if (grade == null) grade = +sv[0]; klass = +sv.slice(1, 3); num = +sv.slice(3); }
+      }
+      if (klass == null || num == null) continue;
+      const classCode = grade != null ? `${grade}${klass}` : null;
+      const key = `${classCode}|${num}|${nm}`;
+      if (!map.has(key)) {
+        map.set(key, { grade, klass, num, name: nm, classCode, sid: classCode != null ? `${classCode}${String(num).padStart(2, '0')}` : null, entries: [] });
+        order.push(key);
+      }
+      const st = map.get(key);
+      if (C.status >= 0) { const sv = cs(row[C.status]).trim(); if (sv) st.status = sv; }
+      const subject = C.subj >= 0 ? cs(row[C.subj]).trim() : '';
+      const body = cs(row[C.body]).trim();
+      if (!subject || !body) continue; // 자퇴·전출 등으로 내용이 빈 행은 항목을 만들지 않음
+      const prev = st.entries.find(e => e.subject === subject);
+      if (prev) { prev.body += '\n' + body; prev.bytes = neisBytes(prev.body); }
+      else st.entries.push({ type: '교과', subject, label: subject, body, bytes: neisBytes(body) });
+    }
+    // 자퇴·전출 등으로 재학 중이 아니면서 기록도 없는 학생은 검사 대상에서 제외
+    const students = order.map(k => map.get(k)).filter(s => s.entries.length || !s.status || s.status === '재학');
+    students.sort((a, b) => (a.classCode || '').localeCompare(b.classCode || '') || a.num - b.num);
+    return students;
+  }
+
   function parseSetuk(rows) {
+    const tbl = parseSetukTable(rows); // NEIS 조회 다운로드(표 형식) 우선 판별
+    if (tbl.length) return tbl;
     const classRe = /(\d)\s*학년\s*(\d{1,2})\s*반/;
     const cellStr = v => v == null ? '' : String(v);
     let curClass = null;
@@ -2013,7 +2084,7 @@ function clsCompress(classes) {
 // 학년 전 반을 포괄하면 "n학년 전체 학급"으로 표기
 function clsLabel(m) {
   if (m.grade != null && m.classes.size >= 2 && state.gradeClasses && state.gradeClasses[m.grade]) {
-    const all = state.gradeClasses[m.grade];
+    const all = state.gradeClasses[m.grade]; // 편제·명단에 나온 반만 기준 (자료에 있는 반만으로는 '전체'를 판단하지 않음)
     if (all.size >= 2 && [...all].every(c => m.classes.has(c))) return `<span class="all">${m.grade}학년 전체 학급</span>`;
   }
   return clsCompress(m.classes);
@@ -2158,7 +2229,6 @@ function buildMats() {
   const addG = (g, c) => { if (g != null && c) (allByGrade[g] = allByGrade[g] || new Set()).add(c); };
   if (state.setting && state.setting.teachers) for (const t of state.setting.teachers) for (const c of t.classes) addG(t.grade, c);
   if (state.setting && state.setting.roster) for (const r of state.setting.roster) if (r.classCode) addG(+r.classCode[0], r.classCode);
-  for (const st of state.students) addG(st.grade, st.classCode);
   state.gradeClasses = allByGrade;
   // 교과 카드: 편제상 개설 반을 모두 카드 범위에 포함 + 자료가 전혀 없는 반(전원 미입력) 산출
   for (const m of mats) {
