@@ -898,6 +898,12 @@ const NEISCheck = (() => {
       alt: "기관명 삭제 또는 '국제기구'·'관련 기관' 등 일반 표현으로 변경"
     },
     {
+      id: 'ngo', grade: '금지', label: '단체·NGO명',
+      re: /굿네이버스|유니세프|월드비전|세이브\s*더\s*칠드런|초록우산|어린이재단|국경\s*없는\s*의사회|대한\s*적십자사?|적십자|그린피스|아름다운\s*가게|사랑의\s*열매|컴패션|플랜\s*코리아|국제\s*앰네스티|앰네스티|옥스팜|\bUNICEF\b|\bWWF\b|\bWorld\s*Vision\b|\bGreenpeace\b|\bAmnesty\b|\bOxfam\b/gi,
+      reason: '봉사·후원 단체명(NGO·재단·구호기관 등)은 기재 불가 — 교육부·시도교육청 및 소속기관만 예외',
+      alt: "단체명 삭제 또는 '국제구호단체'·'아동복지기관'·'지역 봉사기관' 등 일반 표현으로 변경"
+    },
+    {
       id: 'platform', grade: '금지', label: '플랫폼·상호명',
       re: /유튜브|구글|커리어넷|테드|캔바|인스타그램|틱톡|youtube|google|canva|instagram|tiktok/gi,
       reason: '상호명(플랫폼·서비스명 포함)은 기재 불가',
