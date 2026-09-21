@@ -595,6 +595,33 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   .tab-dhead .clschips button.on { background: var(--ink); color: #fff; }
   .clsline { font-size: 12px; font-weight: 800; letter-spacing: 1px; color: var(--faint); margin: 18px 0 8px; display: flex; align-items: center; gap: 10px; }
   .clsline::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+  /* ---- 미입력 탭: 과목별 아코디언 (시안 45) ---- */
+  .mi-row { background: var(--card); border: 1px solid var(--line); border-radius: 14px; margin-bottom: 8px; overflow: hidden; }
+  .mi-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; cursor: pointer; flex-wrap: wrap; }
+  .mi-head .chev { width: 22px; height: 22px; flex: none; border-radius: 6px; background: #f0ebe8; display: flex; align-items: center; justify-content: center; color: var(--sub); transition: transform .18s; }
+  .mi-head .chev svg { width: 13px; height: 13px; }
+  .mi-row.open .mi-head .chev { transform: rotate(90deg); }
+  .mi-head .nm { font-size: 15.5px; font-weight: 800; letter-spacing: -.2px; white-space: nowrap; }
+  .mi-head .tch { font-size: 12px; color: var(--faint); white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+  .mi-head .tch b { color: var(--sub); font-weight: 600; }
+  .mi-cls { display: flex; gap: 5px; flex-wrap: wrap; margin-left: 4px; }
+  .mi-chip { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 99px; border: 1px solid var(--line); color: var(--sub); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .mi-chip.z { background: var(--danger-soft); border-color: #f6cfc9; color: var(--danger); }
+  .mi-chip.p { background: var(--warn-soft); border-color: #f3e0bd; color: var(--warn); }
+  .mi-chip.ok { background: var(--ok-soft); border-color: #c9ecd6; color: var(--ok); }
+  .mi-prog { margin-left: auto; display: flex; align-items: center; gap: 8px; flex: none; }
+  .mi-bar { width: 110px; height: 7px; background: #efe8e5; border-radius: 99px; overflow: hidden; display: block; }
+  .mi-bar i { display: block; height: 100%; background: var(--ok); border-radius: 99px; }
+  .mi-prog b { font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--sub); font-weight: 700; }
+  .mi-body { border-top: 1px solid var(--line); padding: 6px 16px 12px 48px; }
+  .mi-crow { display: grid; grid-template-columns: 150px 64px 1fr; gap: 12px; padding: 8px 0; border-bottom: 1px dashed #f1e9e6; font-size: 13px; align-items: baseline; }
+  .mi-crow:last-child { border-bottom: none; }
+  .mi-crow .c { font-weight: 700; }
+  .mi-crow .c .mi-t { display: block; font-style: normal; font-weight: 500; font-size: 11.5px; color: var(--faint); }
+  .mi-crow .n { font-variant-numeric: tabular-nums; color: var(--sub); }
+  .mi-crow .n.z { color: var(--danger); font-weight: 800; }
+  .mi-crow .names { color: var(--sub); line-height: 1.7; }
+  .mi-crow .names.all { color: var(--faint); }
   /* ---- 봉사활동 상세 ---- */
   .volbox { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 15px 18px; margin-bottom: 14px; }
   .volhead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -3481,18 +3508,69 @@ function renderMissing() {
     $('#panel-missing').innerHTML = html; return;
   }
   const rows = r.missing.subjects.filter(s => s.entered < s.enrolled);
-  html += `<div class="section-title">수강명단 대비 미입력 과목</div>
-    <div class="section-note">담당 선생님께 입력을 독려할 때 쓰는 목록입니다 · <b>명단 없음</b> 과목은 수강명단이 확보되지 않아 반 전체 기준으로 집계(실제 수강생과 다를 수 있음) · 세팅데이터와 다른 학기의 파일에는 맞지 않을 수 있습니다</div>`;
-  if (!rows.length) { html += '<div class="empty"><div class="big">✅</div>모든 과목 입력이 완료되었습니다.</div>'; $('#panel-missing').innerHTML = html; return; }
-  html += `<table class="miss-table"><thead><tr><th>반</th><th>과목</th><th>담당</th><th>입력</th><th>미입력 학생</th></tr></thead><tbody>`;
-  html += rows.map(s => `<tr>
-    <td>${fmtClass(s.classCode)}</td>
-    <td><b>${esc(s.name)}</b>${s.isWait ? ' <span class="pill warn">명단 없음</span>' : ''}</td>
-    <td>${esc(s.teacher || '—')}</td>
-    <td style="font-variant-numeric:tabular-nums">${s.entered}/${s.enrolled}</td>
-    <td class="names">${s.missingStudents.map(x => esc(x.name)).join(', ')}</td>
-  </tr>`).join('') + '</tbody></table>';
+  if (!state.tabView) state.tabView = {};
+  if (!state.missOpen) state.missOpen = new Set();
+  const view = state.tabView.missing || 'cards';
+  // 과목(학년+정규화 과목명) 단위로 반 묶기 — 완료된 반도 칩으로 보이도록 전체 과목 행을 사용
+  const groups = new Map();
+  for (const s of r.missing.subjects) {
+    const key = (s.grade || '?') + '|' + s.norm;
+    if (!groups.has(key)) groups.set(key, { key, name: s.name, grade: s.grade, teachers: new Set(), isWait: false, enrolled: 0, entered: 0, cls: [] });
+    const g = groups.get(key);
+    if (s.teacher) s.teacher.split(/\s*,\s*/).forEach(t => t && g.teachers.add(t));
+    if (s.isWait) g.isWait = true;
+    g.enrolled += s.enrolled; g.entered += s.entered; g.cls.push(s);
+  }
+  const glist = [...groups.values()].map(g => { g.miss = g.enrolled - g.entered; g.allMiss = g.entered === 0; g.cls.sort((a, b) => (a.classCode || '').localeCompare(b.classCode || '')); return g; })
+    .filter(g => g.miss > 0)
+    .sort((a, b) => (b.allMiss - a.allMiss) || (b.miss - a.miss) || ((a.grade || 9) - (b.grade || 9)) || a.name.localeCompare(b.name));
+  const seg = `<span class="seg"><button class="${view === 'cards' ? 'on' : ''}" data-v="cards">과목별</button><button class="${view === 'list' ? 'on' : ''}" data-v="list">전체 목록</button></span>`;
+  html += `<div class="tabhead" style="margin-top:${(r.blanks || []).length ? 28 : 0}px"><h3>미입력 <b class="${glist.length ? 'warm' : 'ok'}">${glist.length}</b>과목</h3><span class="meta">반 기준 ${rows.length}건${glist.filter(g => g.allMiss).length ? ` · 전원 미입력 ${glist.filter(g => g.allMiss).length}과목 먼저` : ''}</span>${seg}</div>`;
+  if (!rows.length) { html += '<div class="empty"><div class="big">✅</div>모든 과목 입력이 완료되었습니다.</div>'; $('#panel-missing').innerHTML = html; bindMissSeg(); return; }
+  if (view === 'list') {
+    html += `<div class="section-note">담당 선생님께 입력을 독려할 때 쓰는 목록입니다 · <b>명단 없음</b> 과목은 수강명단이 확보되지 않아 반 전체 기준으로 집계(실제 수강생과 다를 수 있음) · 세팅데이터와 다른 학기의 파일에는 맞지 않을 수 있습니다</div>`;
+    html += `<table class="miss-table"><thead><tr><th>반</th><th>과목</th><th>담당</th><th>입력</th><th>미입력 학생</th></tr></thead><tbody>`;
+    html += rows.map(s => `<tr>
+      <td>${fmtClass(s.classCode)}</td>
+      <td><b>${esc(s.name)}</b>${s.isWait ? ' <span class="pill warn">명단 없음</span>' : ''}</td>
+      <td>${esc(s.teacher || '—')}</td>
+      <td style="font-variant-numeric:tabular-nums">${s.entered}/${s.enrolled}</td>
+      <td class="names">${s.missingStudents.map(x => esc(x.name)).join(', ')}</td>
+    </tr>`).join('') + '</tbody></table>';
+    $('#panel-missing').innerHTML = html; bindMissSeg(); return;
+  }
+  html += `<div class="section-note">담당 선생님께 입력을 독려할 때 쓰는 목록입니다 · 반 칩 색: <span class="mi-chip z">0명</span> 전원 미입력 · <span class="mi-chip p">일부</span> 일부 미입력 · <span class="mi-chip ok">완료</span> · 줄을 누르면 반별 학생 명단이 펼쳐집니다 · <b>명단 없음</b> 과목은 반 전체 기준 집계</div>`;
+  html += glist.map(g => {
+    const open = state.missOpen.has(g.key);
+    const chips = g.cls.map(c => { const k = c.entered === 0 ? 'z' : (c.entered < c.enrolled ? 'p' : 'ok'); return `<span class="mi-chip ${k}">${c.classCode ? +c.classCode.slice(1) + '반' : '?'} ${c.entered}/${c.enrolled}</span>`; }).join('');
+    const pct = g.enrolled ? Math.round(g.entered / g.enrolled * 100) : 0;
+    const tNames = [...g.teachers].join(', ');
+    const badge = g.allMiss ? '<span class="pill danger">전원 미입력</span>' : `<span class="pill warn">미입력 ${g.miss}명</span>`;
+    const body = g.cls.filter(c => c.entered < c.enrolled).map(c => {
+      const all = c.entered === 0;
+      const tchOne = c.teacher && g.teachers.size > 1 ? ` <i class="mi-t">${esc(c.teacher)}</i>` : '';
+      return `<div class="mi-crow"><span class="c">${fmtClass(c.classCode)}${tchOne}</span><span class="n${all ? ' z' : ''}">${c.entered}/${c.enrolled}</span><span class="names${all ? ' all' : ''}">${all ? '전원 미입력 — ' : ''}${c.missingStudents.map(x => esc(x.name)).join(', ')}</span></div>`;
+    }).join('');
+    return `<div class="mi-row${open ? ' open' : ''}" data-k="${esc(g.key)}">
+      <div class="mi-head"><span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></span>
+        <span class="nm">${esc(g.name)}</span>${g.isWait ? '<span class="pill warn">명단 없음</span>' : ''}
+        <span class="tch">${tNames ? '담당 <b>' + esc(tNames) + '</b>' : ''}</span>
+        ${badge}<span class="mi-cls">${chips}</span>
+        <span class="mi-prog"><span class="mi-bar"><i style="width:${pct}%"></i></span><b>${g.entered} / ${g.enrolled}</b></span></div>
+      <div class="mi-body"${open ? '' : ' hidden'}>${body}</div>
+    </div>`;
+  }).join('');
   $('#panel-missing').innerHTML = html;
+  bindMissSeg();
+  document.querySelectorAll('#panel-missing .mi-head').forEach(h => h.onclick = () => {
+    const row = h.parentElement, k = row.dataset.k, body = row.querySelector('.mi-body');
+    const open = !row.classList.contains('open');
+    row.classList.toggle('open', open); body.hidden = !open;
+    if (open) state.missOpen.add(k); else state.missOpen.delete(k);
+  });
+}
+function bindMissSeg() {
+  document.querySelectorAll('#panel-missing .seg button').forEach(b => b.onclick = () => { state.tabView.missing = b.dataset.v; renderMissing(); });
 }
 
 function renderStudents() {
