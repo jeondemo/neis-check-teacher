@@ -306,6 +306,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   .issue-body { margin-top: 8px; font-size: 13px; color: var(--sub); }
   .issue-body .ctx { background: #f9f4f2; border-radius: 8px; padding: 10px 12px; margin-top: 6px; color: var(--ink); }
   .issue-body .ctx mark { background: #ffe58a; border-radius: 3px; padding: 0 2px; }
+  .issue-body .ctx mark.dim { background: #fff3c4; color: #7a5a10; font-weight: 600; }
   .issue-body .why { margin-top: 6px; }
   .issue-body .why b { color: var(--ink); }
   .empty { text-align: center; color: var(--faint); padding: 48px 0; }
@@ -1005,7 +1006,7 @@ const NEISCheck = (() => {
     },
     {
       id: 'intlorg', grade: '금지', label: '국제기구·기관명',
-      re: /유엔|유네스코|유럽연합|세계\s*보건\s*기구|세계\s*무역\s*기구|국회|\bUN\b|\bUNESCO\b|\bEU\b|\bWHO\b|\bWTO\b|\bTED\b/g,
+      re: /유엔|국제\s*연합|유네스코|유럽\s*연합|세계\s*보건\s*기구|세계\s*무역\s*기구|국제\s*통화\s*기금|세계\s*은행|경제\s*협력\s*개발\s*기구|국제\s*올림픽\s*위원회|국회|\bUN\b|\bUNESCO\b|\bEU\b|\bWHO\b|\bWTO\b|\bIMF\b|\bOECD\b|\bIOC\b|\bTED\b/g,
       reason: '기관명(기구·단체·조직 포함)은 기재 불가 — 교육부·시도교육청 및 소속기관만 예외',
       alt: "기관명 삭제 또는 '국제기구'·'관련 기관' 등 일반 표현으로 변경"
     },
@@ -2423,6 +2424,15 @@ function volWhy(fList, tList) {
   }
   return out.join('');
 }
+// 기재금지 문맥 하이라이트: 이 건의 낱말은 진하게, 같은 기재 항목에서 걸린 다른 금칙어는 연하게 함께 표시
+function ctxHl(x) {
+  const others = [...new Set((state.res.forbidden || []).filter(o => o.entry === x.entry && o.match !== x.match).map(o => o.match))];
+  const words = [[x.match, 'mark'], ...others.map(w => [w, 'mark dim'])].filter(w => w[0]).sort((a, b) => b[0].length - a[0].length);
+  const toks = [];
+  let t = x.context;
+  for (const [w, cls] of words) t = t.split(w).join('\u0001' + (toks.push([w, cls]) - 1) + '\u0002');
+  return esc(t).replace(/\u0001(\d+)\u0002/g, (_, i) => `<mark class="${toks[i][1]}">${esc(toks[i][0])}</mark>`);
+}
 function matPred(m) {
   if (m.norm === '__cc__') return en => en.type === '창체';
   if (m.norm === '__ht__') return en => en.type === '행특';
@@ -2895,7 +2905,7 @@ function renderMatDetail(m) {
     for (const x of i.f) items.push(`<div class="issue"><div class="issue-head">
         <span class="pill ${x.rule.grade === '금지' ? 'danger' : 'warn'}">${x.rule.grade} · ${esc(x.rule.label)}</span>
         <span class="who">${fmtClass(x.st.classCode)} ${stuLabel(x.st)}</span>${showLabel ? `<span class="subj">${esc(x.entry.label)}</span>` : ''}${tch(x.entry)}</div>
-      <div class="issue-body"><div class="ctx">${esc(x.context).replace(esc(x.match), `<mark>${esc(x.match)}</mark>`)}</div>
+      <div class="issue-body"><div class="ctx">${ctxHl(x)}</div>
       <div class="why"><b>사유</b> · ${esc(x.rule.reason)} &nbsp; <b>대안</b> · ${esc(x.rule.alt)}</div></div></div>`);
     for (const x of i.sim) {
       const k = simRefs.length;
@@ -3167,7 +3177,7 @@ function forbiddenItems(list) {
         <span class="subj">${esc(f.entry.label)}</span>${tch(f.entry)}
       </div>
       <div class="issue-body">
-        <div class="ctx">${esc(f.context).replace(esc(f.match), `<mark>${esc(f.match)}</mark>`)}</div>
+        <div class="ctx">${ctxHl(f)}</div>
         <div class="why"><b>사유</b> · ${esc(f.rule.reason)}</div>
         <div class="why"><b>대안</b> · ${esc(f.rule.alt)}</div>
       </div>
